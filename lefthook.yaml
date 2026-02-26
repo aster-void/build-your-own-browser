@@ -1,0 +1,6 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      run: just format
+      stage_fixed: true

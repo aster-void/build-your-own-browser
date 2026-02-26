@@ -1,3 +1,9 @@
 [tools]
 dotnet-core = "10"
 just = "latest"
+lefthook = "latest"
+
+[hooks]
+postinstall = '''
+lefthook install
+'''
