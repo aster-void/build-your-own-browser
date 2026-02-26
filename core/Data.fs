@@ -1,6 +1,6 @@
-module Byobu.Data
+module core.Data
 
-open Byobu.Types
+open core.Types
 
 let tags: TagDefinition list =
     [

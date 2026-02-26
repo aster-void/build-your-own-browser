@@ -3,7 +3,7 @@
 [<EntryPoint>]
 let main argv : int =
     if argv.Length > 0 && argv.[0] = "test" then
-        Byobu.Tests.run ()
+        core.Tests.run ()
         0
     else
         0

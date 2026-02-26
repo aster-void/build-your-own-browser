@@ -1,6 +1,6 @@
-module Byobu.Parser
+module core.Parser
 
-open Byobu.Types
+open core.Types
 
 type AttrsState =
     | AttrsStateKey

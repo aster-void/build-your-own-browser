@@ -1,4 +1,4 @@
-module Byobu.Tests
+module core.Tests
 
 let run () =
     Parser.tests ()

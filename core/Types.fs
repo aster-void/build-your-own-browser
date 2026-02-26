@@ -1,4 +1,4 @@
-namespace Byobu.Types
+namespace core.Types
 
 type Element =
     { tag: string
