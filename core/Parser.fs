@@ -1,6 +1,6 @@
 module core.Parser
 
-open core.Types
+open core
 
 type AttrsState =
     | AttrsStateKey
@@ -24,6 +24,7 @@ let rec parseAttrs (s: string) : Map<string, string> * string =
     let mutable currentKey = ""
     let mutable currentValue = ""
     let mutable currentQuoteState: char Option = None // either '"' or '\''. too lazy to write a DU
+    let mutable escaped = false
     let mutable looping = true
     let mutable chars = System.Collections.Generic.Queue<char> s
     // returns `did actually skip some spaces?`
@@ -41,16 +42,20 @@ let rec parseAttrs (s: string) : Map<string, string> * string =
         let c = chars.Dequeue()
 
         match c with
+        // handle escapes (we assume escapes are only done on values, not keys)
+        | c when escaped && currentState = AttrsStateValue -> currentValue <- currentValue + string c
+        | '\\' -> escaped <- true
+
+        // handle quotation
         | q when currentQuoteState = Some q -> currentQuoteState <- None
         | '"'
         | '\'' as q when currentQuoteState = None -> currentQuoteState <- Some q
-        | '/' when currentQuoteState = None && currentState = AttrsStateKey ->
-            // don't panic if it's just a />
-            if chars.Peek() <> '>' then
-                failwith "bail: unexpected /"
+
+        // handle end of key
         | '=' when currentQuoteState = None ->
             currentState <- AttrsStateValue
             skipSpaces () |> ignore
+        // handle end of value and tag close
         | ' '
         | '>' when currentQuoteState = None ->
             if currentKey <> "" then
@@ -61,6 +66,10 @@ let rec parseAttrs (s: string) : Map<string, string> * string =
 
             if c = '>' then
                 looping <- false
+        | '/' when currentQuoteState = None && currentState = AttrsStateKey ->
+            // don't panic if it's just a />
+            if chars.Peek() <> '>' then
+                failwith "bail: unexpected /"
         | char ->
             match currentState with
             | AttrsStateKey ->
@@ -107,7 +116,6 @@ let parseAttrsTests () =
 
 // <span class="foo">....</span>... -> (Element {}) * ...
 let rec parseTag (s: string) : Element * string =
-    eprintfn "parseTag %A" s
     assert (s.[0] = '<')
 
     let tagName =
@@ -132,14 +140,8 @@ let rec parseTag (s: string) : Element * string =
     // |tag|
     //      |  childrenAndRest  |
     //      |       rest        |
-    let tagInfo =
-        List.tryFind (fun (t: TagDefinition) -> t.name = tagName) Data.tags
-        |> Option.defaultWith (fun () ->
-            eprintfn "unknown tag: %A" tagName
-            Data.defaultTag)
-
-    let isSelfClosing: bool =
-        List.exists (fun c -> c = TagControl.SelfClosing) tagInfo.controls
+    let isSelfClosing: bool = List.contains tagName Data.selfClosingTags
+    let isRawText: bool = List.contains tagName Data.rawTextTags
 
     let attrs, childrenAndRest = parseAttrs s.[tagName.Length + 1 ..]
 
@@ -148,11 +150,18 @@ let rec parseTag (s: string) : Element * string =
         | true -> [], childrenAndRest
         | false ->
             let closingTag = "</" + tagName + ">"
-            let childrenEnd = childrenAndRest.IndexOf closingTag
+
+            let childrenEnd =
+                match childrenAndRest.IndexOf closingTag with
+                | -1 ->
+                    eprintfn "warning: closing tag is not found for: %s" tagName
+                    childrenAndRest.Length
+                | rest -> rest
 
             let children, rest =
-                if childrenEnd = -1 then
-                    failwith "todo: handle when closingTag is not found"
+                if isRawText then
+                    [ TextNode childrenAndRest.[.. childrenEnd - 1] ],
+                    childrenAndRest.[childrenEnd + closingTag.Length ..]
                 else
                     parseContent childrenAndRest.[.. childrenEnd - 1],
                     childrenAndRest.[childrenEnd + closingTag.Length ..]
@@ -167,26 +176,33 @@ let rec parseTag (s: string) : Element * string =
     el, rest
 
 and parseContent (text: string) : Node list =
-    eprintfn "parseContent %A" text
-
     match text with
-    | s when s.StartsWith "</" ->
-        // floating closing tag, pls handle
-        failwith "todo: standalone closing tag"
+    // base case
+    | "" -> []
+    // orphaned close tag node
+    | s when s.StartsWith "</" -> failwithf "todo: standalone closing tag %s" s
+    // comment node
+    | s when s.StartsWith "<!" ->
+        let END_TOKEN = if s.ToLower().StartsWith "<!--" then "-->" else ">"
+        let last = s.IndexOf END_TOKEN
+
+        if last = -1 then
+            []
+        else
+            parseContent s.[last + END_TOKEN.Length ..]
+    // tag node
     | s when s.StartsWith "<" ->
         // tag
         let el, rest = parseTag s
         ElementNode el :: parseContent rest
-    | "" -> [] // base case
+    // text node
     | s ->
-        // text node
-        let bracket = s.IndexOf "<"
+        let node_end =
+            match s.IndexOf "<" with
+            | -1 -> s.Length
+            | found -> found - 1
 
-        if bracket = -1 then
-            // also base case
-            [ TextNode s ]
-        else
-            TextNode s.[.. bracket - 1] :: parseContent s.[bracket..]
+        TextNode s.[..node_end] :: parseContent s.[node_end + 1 ..]
 
 let parseTagTests () =
     let el, rest = parseTag "<span tag=value>abc</span>def"
@@ -200,6 +216,7 @@ let parseTagTests () =
     test "parseTag self closing children" el.children []
 
 let parseContentTests () =
+    // base test
     let nodes = parseContent "<span class=text-xl>HELLO!</span>"
 
     test
@@ -209,11 +226,54 @@ let parseContentTests () =
               { tag = "span"
                 attributes = Map["class", "text-xl"]
                 children = [ TextNode "HELLO!" ] } ]
+    // comment test
+    let nodes =
+        parseContent
+            "<!DOCTYPE html><!-- some comments --> <!-- some more! --><!-- connected comments <!-- what if comments open in comments? --><span>aaa<!-- comment in between text nodes -->bbb</span><!--html ends with a comment -->"
 
-let parseHtml (node: string) : Html = failwith "TODO"
+    test
+        "parseContents comments"
+        nodes
+        [ TextNode " "
+          ElementNode
+              { tag = "span"
+                attributes = Map []
+                children = [ TextNode "aaa"; TextNode "bbb" ] } ]
+
+    // rawText test
+    let nodes =
+        parseContent "<script>const text = 'This is just a text <p></p>'</script>"
+
+    test
+        "parseContents rawText"
+        nodes
+        [ ElementNode
+              { tag = "script"
+                attributes = Map []
+                children = [ TextNode "const text = 'This is just a text <p></p>'" ] } ]
+
+
+let parseHtml (full_html: string) : Html =
+    let tree = parseContent full_html
+    tree
+
+let parseRealworldTests () =
+    System.IO.File.ReadAllText "../tests/example.com" |> parseHtml |> ignore
+    eprintfn "parseRealworldTests: success example.com"
+
+    System.IO.File.ReadAllText "../tests/justfuckingusehtml.com"
+    |> parseHtml
+    |> ignore
+
+    eprintfn "parseRealworldTests: success justfuckingusehtml.com"
+    // hell no
+    // System.IO.File.ReadAllText "../tests/github.com" |> parseHtml |> ignore
+    // eprintfn "parseRealworldTests: success github.com"
+    eprintfn "parseRealworldTests: all pass"
 
 let tests () =
     parseAttrsTests ()
     parseTagTests ()
     parseContentTests ()
+    parseRealworldTests ()
     ()
