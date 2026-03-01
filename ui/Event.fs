@@ -45,14 +45,18 @@ let init (argv: string array) =
     let init_url = if Array.length argv = 0 then "" else Array.head argv
 
     if init_url = "" then
-        { navbar_content = ""
-          current_url = ""
-          content = exn "Please enter URL" |> Errored },
+        {
+            navbar_content = ""
+            current_url = ""
+            content = exn "Please enter URL" |> Errored
+        },
         Cmd.none
     else
-        { navbar_content = init_url
-          current_url = init_url
-          content = Loading },
+        {
+            navbar_content = init_url
+            current_url = init_url
+            content = Loading
+        },
         Cmd_NavigateTo init_url
 
 let update (msg: Msg) (state: State) : State * Cmd<Msg> =
@@ -61,10 +65,12 @@ let update (msg: Msg) (state: State) : State * Cmd<Msg> =
     match msg with
     | NavigateToNavbarURL -> state, NavigateTo state.navbar_content |> Cmd.ofMsg
     | NavigateTo url ->
-        { state with
-            navbar_content = url
-            current_url = url
-            content = Loading },
+        {
+            state with
+                navbar_content = url
+                current_url = url
+                content = Loading
+        },
         let cmd = Cmd_NavigateTo url
 
         cmd

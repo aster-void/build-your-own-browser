@@ -5,54 +5,105 @@ open Avalonia.FuncUI.Types
 open Avalonia.FuncUI.Elmish
 open Avalonia.FuncUI.DSL
 open Avalonia.Media
+open Avalonia.Media.Imaging
 open Avalonia.Layout
 open Avalonia
+open Avalonia.FuncUI
+open System.Net.Http
 open ui.Event
 open ui.Model
 open Option
 open System
 
+// consts
+let builtinInheritableStyles: Map<string, TextBlock IAttr list> =
+    Map["h1", [ TextBlock.fontSize 60; TextBlock.margin (Thickness(0, 16, 0, 8)) ]
+        "h2", [ TextBlock.fontSize 40; TextBlock.margin (Thickness(0, 12, 0, 6)) ]
+        "h3", [ TextBlock.fontSize 30; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "h4", [ TextBlock.fontSize 24; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "h5", [ TextBlock.fontSize 20; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "h6", [ TextBlock.fontSize 16; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "blockquote", [ TextBlock.margin (Thickness(40, 8, 0, 8)) ]
+        "span", []
+
+        "a",
+        [
+            TextBlock.textDecorations TextDecorations.Underline
+            TextBlock.foreground "blue"
+        ]
+
+        "strong", [ TextBlock.fontWeight FontWeight.Bold ]
+        "b", [ TextBlock.fontWeight FontWeight.Bold ]
+        "em", [ TextBlock.fontStyle FontStyle.Italic ]
+        "i", [ TextBlock.fontStyle FontStyle.Italic ]
+        "u", [ TextBlock.textDecorations TextDecorations.Underline ]
+        "s", [ TextBlock.textDecorations TextDecorations.Strikethrough ]
+        "strike", [ TextBlock.textDecorations TextDecorations.Strikethrough ]
+        "small", [ TextBlock.fontSize 12 ]
+        "code", [ TextBlock.fontFamily "monospace"; TextBlock.foreground "lightgray" ]
+        "kbd", [ TextBlock.fontFamily "monospace"; TextBlock.foreground "lightgray" ]
+        "samp", [ TextBlock.fontFamily "monospace"; TextBlock.foreground "lightgray" ]
+        "sup", [ TextBlock.fontSize 10 ]
+        "sub", [ TextBlock.fontSize 10 ]
+        "mark", [ TextBlock.background "yellow"; TextBlock.foreground "black" ]]
+
+let builtinSelfStyles =
+    Map["p", [ TextBlock.margin (Thickness(0, 8, 0, 8)) ]
+        "sup", [ TextBlock.margin (Thickness(0, -4, 0, 0)) ]
+        "sub", [ TextBlock.margin (Thickness(0, 4, 0, 0)) ]
+
+        "h1", [ TextBlock.margin (Thickness(0, 16, 0, 8)) ]
+        "h2", [ TextBlock.margin (Thickness(0, 12, 0, 6)) ]
+        "h3", [ TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "h4", [ TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "h5", [ TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "h6", [ TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        "blockquote", [ TextBlock.margin (Thickness(40, 8, 0, 8)) ]
+        "p", [ TextBlock.margin (Thickness(0, 8, 0, 8)) ]]
+
 let isInline (node: core.Node) =
     match node with
     | core.TextNode _ -> true
     | core.ElementNode e ->
-        List.contains
-            e.tag
-            [ "span"
-              "a"
-              "em"
-              "strong"
-              "b"
-              "i"
-              "u"
-              "s"
-              "small"
-              "mark"
-              "code"
-              "kbd"
-              "samp"
-              "var"
-              "sub"
-              "sup"
-              "br"
-              "wbr"
-              "q"
-              "cite"
-              "abbr"
-              "dfn"
-              "data"
-              "time"
-              "bdi"
-              "bdo"
-              "ruby"
-              "rt"
-              "rp"
-              "img"
-              "input"
-              "button"
-              "select"
-              "textarea"
-              "label" ]
+        List.contains e.tag [
+            "span"
+            "a"
+            "em"
+            "strong"
+            "b"
+            "i"
+            "u"
+            "s"
+            "small"
+            "mark"
+            "code"
+            "kbd"
+            "samp"
+            "var"
+            "sub"
+            "sup"
+            "br"
+            "wbr"
+            "q"
+            "cite"
+            "abbr"
+            "dfn"
+            "data"
+            "time"
+            "bdi"
+            "bdo"
+            "ruby"
+            "rt"
+            "rp"
+            "img"
+            "input"
+            "button"
+            "select"
+            "textarea"
+            "label"
+        ]
+
+// utils
 
 let rec getText (node: core.Node list) : string =
     node
@@ -67,57 +118,118 @@ let formatText s =
     |> fun s -> s.Replace("&check;", "✔")
     |> fun s -> s.Replace("\n", "\\n")
 
+// types
+
+type ListType =
+    | NoList
+    | Ol of int
+    | Ul
+
+type Context = {
+    dispatch: Msg -> unit
+    text_decorations: TextBlock IAttr list
+    list_type: ListType
+}
+
+// components
+type ImageLoadingState =
+    | ImLoading
+    | ImError of exn
+    | ImData of Bitmap
+
+let client = new HttpClient()
+
+let Image (attrs: Map<string, string>) =
+    Component.create (
+        "image",
+        fun cx ->
+            let url = attrs.TryFind "src"
+            let data = cx.useState ImLoading
+
+            cx.useEffect (
+                fun () ->
+                    async {
+                        try
+                            match url with
+                            | None -> failwith "Image URL not specified"
+                            | Some url when url.StartsWith "http://" || url.StartsWith "https://" ->
+                                let! stream = client.GetStreamAsync url |> Async.AwaitTask
+                                data.Set(ImData(new Bitmap(stream)))
+                            | Some url when url.StartsWith "file://" -> failwith "file image loading not supported"
+                            | Some url -> failwithf "unknown schema: %s" url
+                        with ex ->
+                            data.Set(ImError ex)
+                    }
+                    |> Async.Start
+
+                    ()
+                , [ EffectTrigger.AfterInit ]
+            )
+
+            match data.Current with
+            | ImLoading -> Panel.create []
+            | ImError ex -> TextBlock.create [ TextBlock.text ex.Message ]
+            | ImData bm -> Image.create [ Image.source bm ]
+    )
+
+// = renderer
+type ContextedNode = { node: core.Node; c: Context }
 
 type AnonymousBlockBox =
-    | AnonymousBlockWrap of core.Node list
-    | AnonymousBlockPassthru of core.Node
+    | AnonymousBlockWrap of ContextedNode list
+    | AnonymousBlockPassthru of ContextedNode
 
     member self.canAppend =
         match self with
         | AnonymousBlockWrap _ -> true
-        | AnonymousBlockPassthru b -> isInline b
+        | AnonymousBlockPassthru b -> isInline b.node
 
-    member self.append(n: core.Node) : AnonymousBlockBox =
+    member self.append(n: ContextedNode) : AnonymousBlockBox =
         match self with
         | AnonymousBlockWrap nodes -> nodes @ [ n ] |> AnonymousBlockWrap
         | AnonymousBlockPassthru node -> [ node; n ] |> AnonymousBlockWrap
 
-let rec render (dispatch: Msg -> unit) (context: TextBlock IAttr list) (dom_node: core.Node) : IView option =
-    match dom_node with
+let rec render ({ c = c; node = node }: ContextedNode) : IView option =
+    match node with
     | core.TextNode t ->
         if t.Trim() = "" then
             None
         else
             let block =
                 TextBlock.create (
-                    [ TextBlock.text (formatText t)
-                      TextBlock.textWrapping Avalonia.Media.TextWrapping.Wrap ]
-                    @ context
+                    [
+                        TextBlock.text (formatText t)
+                        TextBlock.textWrapping Avalonia.Media.TextWrapping.Wrap
+                    ]
+                    @ c.text_decorations
                 )
 
             block :> IView |> Some
-    | core.ElementNode { tag = tag
-                         attributes = attributes
-                         children = children } ->
-        let passthru attrs : IView Option =
-            List.fold
-                (fun (acc: AnonymousBlockBox list) node ->
-                    match isInline node with
-                    | true when acc.Length > 0 && acc.Head.canAppend -> acc.[0].append node :: acc.[1..]
-                    | _ -> AnonymousBlockPassthru node :: acc)
-                []
-                children
-            |> List.rev
-            |> List.map (function
-                | AnonymousBlockPassthru node -> render dispatch (attrs @ context) node
-                | AnonymousBlockWrap nodes ->
-                    match renderAll dispatch (attrs @ context) nodes with
-                    | [] -> None
-                    | some -> WrapPanel.create [ WrapPanel.children some ] :> IView |> Some)
-            |> List.choose id
+    | core.ElementNode {
+                           tag = tag
+                           attributes = attributes
+                           children = children
+                       } ->
+
+
+        let appendAttrs selfAttrs customizer =
+            let inheritAttrs = builtinInheritableStyles.TryFind tag |> Option.defaultValue []
+
+            let selfAttrs =
+                selfAttrs @ (builtinSelfStyles.TryFind tag |> Option.defaultValue [])
+
+            let c =
+                customizer {
+                    c with
+                        text_decorations = inheritAttrs @ c.text_decorations
+                }
+
+            toView (children |> List.map (fun node -> { c = c; node = node }))
             |> function
                 | [] -> None
-                | some -> StackPanel.create [ StackPanel.children some ] :> IView |> Some
+                | some -> StackPanel.create ([ StackPanel.children some ] @ selfAttrs) :> IView |> Some
+
+        let passthru = appendAttrs [] id
 
         match tag with
         // = invisible tags
@@ -126,7 +238,7 @@ let rec render (dispatch: Msg -> unit) (context: TextBlock IAttr list) (dom_node
         | "meta"
         | "link"
         | "title" -> None
-        // = children-only tags
+        // style-only tags
         | "html"
         | "head"
         | "body"
@@ -137,7 +249,7 @@ let rec render (dispatch: Msg -> unit) (context: TextBlock IAttr list) (dom_node
         | "main"
         | "aside"
         | "article"
-        | "section" -> passthru []
+        | "section" -> passthru
 
         // what are those?
         | "search"
@@ -157,7 +269,7 @@ let rec render (dispatch: Msg -> unit) (context: TextBlock IAttr list) (dom_node
         | "bdo"
         | "ruby"
         | "rt"
-        | "rp" -> passthru []
+        | "rp"
 
         // not planned
         | "dt"
@@ -179,57 +291,37 @@ let rec render (dispatch: Msg -> unit) (context: TextBlock IAttr list) (dom_node
         | "template"
         | "slot"
         | "del"
-        | "ins" -> passthru []
+        | "ins"
 
-        // need custom styles
-        // == blocks
-        | "h1" -> passthru [ TextBlock.fontSize 60; TextBlock.margin (Thickness(0, 16, 0, 8)) ]
-        | "h2" -> passthru [ TextBlock.fontSize 40; TextBlock.margin (Thickness(0, 12, 0, 6)) ]
-        | "h3" -> passthru [ TextBlock.fontSize 30; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
-        | "h4" -> passthru [ TextBlock.fontSize 24; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
-        | "h5" -> passthru [ TextBlock.fontSize 20; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
-        | "h6" -> passthru [ TextBlock.fontSize 16; TextBlock.margin (Thickness(0, 8, 0, 4)) ]
+        // style-only normal
+        | "h1"
+        | "h2"
+        | "h3"
+        | "h4"
+        | "h5"
+        | "h6"
         | "strong"
         | "bold"
         | "div"
-        | "ol"
-        | "ul"
-        | "li"
         | "hr"
-        | "blockquote" -> passthru [ TextBlock.margin (Thickness(40, 8, 0, 8)) ]
-        | "span" -> passthru []
-        | "p" -> passthru [ TextBlock.margin (Thickness(0, 8, 0, 8)) ]
-        | "a" ->
-            let href = attributes.TryFind "href"
-
-            let attrs =
-                [ TextBlock.textDecorations TextDecorations.Underline
-                  TextBlock.foreground "blue" ]
-                @ match href with
-                  | Some href -> [ TextBlock.onPointerPressed (fun _ -> dispatch (NavigateTo href)) ]
-                  | None -> []
-
-            passthru attrs
-        | "button" ->
-            let children = getText children
-            Button.create [ Button.content children ] :> IView |> Some
+        | "blockquote"
+        | "span"
+        | "p"
         | "strong"
-        | "b" -> passthru [ TextBlock.fontWeight FontWeight.Bold ]
+        | "b"
         | "em"
-        | "i" -> passthru [ TextBlock.fontStyle FontStyle.Italic ]
-        | "u" -> passthru [ TextBlock.textDecorations TextDecorations.Underline ]
+        | "i"
+        | "u"
         | "s"
-        | "strike" -> passthru [ TextBlock.textDecorations TextDecorations.Strikethrough ]
-        | "small" -> passthru [ TextBlock.fontSize 12 ]
+        | "strike"
+        | "small"
         | "code"
         | "kbd"
-        | "samp" -> passthru [ TextBlock.fontFamily "monospace"; TextBlock.foreground "lightgray" ]
-        | "sup" -> passthru [ TextBlock.fontSize 10; TextBlock.margin (Thickness(0, -4, 0, 0)) ]
-        | "sub" -> passthru [ TextBlock.fontSize 10; TextBlock.margin (Thickness(0, 4, 0, 0)) ]
-        | "mark" -> passthru [ TextBlock.background "yellow"; TextBlock.foreground "black" ]
-        | "br" -> TextBlock.create [ TextBlock.text "\n" ] :> IView |> Some
+        | "samp"
+        | "sup"
+        | "sub"
+        | "mark"
         | "wbr"
-        | "img"
         | "audio"
         | "video"
         | "center"
@@ -263,14 +355,87 @@ let rec render (dispatch: Msg -> unit) (context: TextBlock IAttr list) (dom_node
         | "datalist"
         | "output"
         | "meter"
-        | "progress" -> passthru []
+        | "progress" -> passthru
+        // custom renderer
+        | "button" ->
+            let children = getText children
+            Button.create [ Button.content children ] :> IView |> Some
+        | "a" ->
+            let href = attributes.TryFind "href"
+
+            let selfAttrs =
+                match href with
+                | Some href -> [ TextBlock.onPointerPressed (fun _ -> c.dispatch (NavigateTo href)) ]
+                | None -> []
+
+            appendAttrs selfAttrs id
+        | "br" -> TextBlock.create [ TextBlock.text "\n" ] :> IView |> Some
+        | "ul" -> appendAttrs [] (fun c -> { c with list_type = Ul })
+        | "ol" ->
+            children
+            |> List.mapFold
+                (fun i el ->
+                    match el with
+                    | core.ElementNode e when e.tag = "li" ->
+                        {
+                            node = core.ElementNode e
+                            c = { c with list_type = Ol i }
+                        },
+                        i + 1
+                    | other -> { node = other; c = c }, i)
+                1
+            |> fst
+            |> toView
+            |> function
+                | [] -> None
+                | views -> StackPanel.create [ StackPanel.children views ] :> IView |> Some
+        | "li" ->
+            let prefix =
+                match c.list_type with
+                | NoList -> "~ "
+                | Ol ct -> $"{ct}. "
+                | Ul -> "・ "
+
+            passthru
+            |> Option.map (fun k ->
+                StackPanel.create [
+                    StackPanel.orientation Orientation.Horizontal
+                    StackPanel.children [ TextBlock.create [ TextBlock.text prefix ]; k ]
+                ])
+        | "img" -> Image attributes :> IView |> Some
+        // unknown
         | _ ->
             eprintfn "warning: Unknown tag: %A" tag
-            passthru []
+            passthru
 
-and renderAll dispatch (context: TextBlock IAttr list) (nodes: core.Node list) : IView list =
-    nodes |> List.map (render dispatch []) |> List.choose id
+and toView (children: ContextedNode list) : IView list =
+    List.fold
+        (fun (acc: AnonymousBlockBox list) (cnode: ContextedNode) ->
+            match isInline cnode.node with
+            | true when acc.Length > 0 && acc.Head.canAppend -> acc.[0].append cnode :: acc.[1..]
+            | _ -> AnonymousBlockPassthru cnode :: acc)
+        []
+        children
+    |> List.rev
+    |> List.map (function
+        | AnonymousBlockPassthru cn -> render cn
+        | AnonymousBlockWrap cnodes ->
+            match cnodes |> List.map render |> List.choose id with
+            | [] -> None
+            | some -> WrapPanel.create [ WrapPanel.children some ] :> IView |> Some)
+    |> List.choose id
 
 let renderHtml dispatch (dom: core.Html) : IView =
-    let view = renderAll dispatch [] dom
+    let baseContext = {
+        dispatch = dispatch
+        text_decorations = []
+        list_type = NoList
+    }
+
+    let view =
+        dom
+        |> List.map (fun node -> { node = node; c = baseContext })
+        |> List.map render
+        |> List.choose id
+
     StackPanel.create [ StackPanel.children view ]

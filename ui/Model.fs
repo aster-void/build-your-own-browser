@@ -5,10 +5,11 @@ type ContentState =
     | Errored of exn
     | Dom of core.Html
 
-type State =
-    { navbar_content: string
-      current_url: string
-      content: ContentState }
+type State = {
+    navbar_content: string
+    current_url: string
+    content: ContentState
+}
 
 type Msg =
     | NavigateToNavbarURL

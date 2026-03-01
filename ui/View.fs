@@ -15,14 +15,15 @@ let view (state: State) (dispatch: Msg -> unit) =
         | Errored err -> TextBlock.create [ TextBlock.text err.Message ]
 
     let navbar =
-        TextBox.create
-            [ DockPanel.dock Dock.Top
-              TextBox.text state.navbar_content
-              TextBox.onTextChanged (NavbarTyped >> dispatch)
-              TextBox.onKeyDown (fun e ->
-                  if e.Key = Key.Enter then
-                      dispatch NavigateToNavbarURL
-                      e.Handled <- true) ]
+        TextBox.create [
+            DockPanel.dock Dock.Top
+            TextBox.text state.navbar_content
+            TextBox.onTextChanged (NavbarTyped >> dispatch)
+            TextBox.onKeyDown (fun e ->
+                if e.Key = Key.Enter then
+                    dispatch NavigateToNavbarURL
+                    e.Handled <- true)
+        ]
 
     let screen = DockPanel.create [ DockPanel.children [ navbar; contents ] ]
     screen

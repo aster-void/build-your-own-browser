@@ -136,6 +136,13 @@
     <li>It's just fucking beautiful</li>
   </ul>
 
+  <ol>
+    <li>Extra text</li>
+    <li>One two,</li>
+    <li>three</li>
+    <li>and fucking four</li>
+  </ol>
+
   <p>
     Seriously, what else do you fucking need, you entitled prick? A goddamn
     participation trophy for using a framework to do what HTML does out of the

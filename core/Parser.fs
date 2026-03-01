@@ -114,7 +114,8 @@ let parseAttrsTests () =
              "bar", "baz"],
          "")
 
-// <span class="foo">....</span>... -> (Element {}) * ...
+// <span class="foo">....</span>... -> (Element {}) * ... |> Some
+// <span -> None
 let rec parseTag (s: string) : Element * string =
     assert (s.[0] = '<')
 
@@ -122,9 +123,11 @@ let rec parseTag (s: string) : Element * string =
         let idx = s.IndexOfAny [| ' '; '>' |]
 
         if idx = -1 then
-            failwithf "bail: incomplete tag in parsing tag %A" s
+            eprintfn "bail: incomplete tag in parsing tag %A" s
+            failwith "local error: should be caught"
+        else
+            s.[1 .. idx - 1]
 
-        s.[1 .. idx - 1]
     // <span>children foo</span>barbaz
     // |tag |
     //       |   childrenAndRest     |
@@ -168,10 +171,11 @@ let rec parseTag (s: string) : Element * string =
 
             children, rest
 
-    let el: Element =
-        { tag = tagName
-          attributes = attrs
-          children = children }
+    let el: Element = {
+        tag = tagName
+        attributes = attrs
+        children = children
+    }
 
     el, rest
 
@@ -219,38 +223,38 @@ let parseContentTests () =
     // base test
     let nodes = parseContent "<span class=text-xl>HELLO!</span>"
 
-    test
-        "parseContents base"
-        nodes
-        [ ElementNode
-              { tag = "span"
-                attributes = Map["class", "text-xl"]
-                children = [ TextNode "HELLO!" ] } ]
+    test "parseContents base" nodes [
+        ElementNode {
+            tag = "span"
+            attributes = Map["class", "text-xl"]
+            children = [ TextNode "HELLO!" ]
+        }
+    ]
     // comment test
     let nodes =
         parseContent
             "<!DOCTYPE html><!-- some comments --> <!-- some more! --><!-- connected comments <!-- what if comments open in comments? --><span>aaa<!-- comment in between text nodes -->bbb</span><!--html ends with a comment -->"
 
-    test
-        "parseContents comments"
-        nodes
-        [ TextNode " "
-          ElementNode
-              { tag = "span"
-                attributes = Map []
-                children = [ TextNode "aaa"; TextNode "bbb" ] } ]
+    test "parseContents comments" nodes [
+        TextNode " "
+        ElementNode {
+            tag = "span"
+            attributes = Map []
+            children = [ TextNode "aaa"; TextNode "bbb" ]
+        }
+    ]
 
     // rawText test
     let nodes =
         parseContent "<script>const text = 'This is just a text <p></p>'</script>"
 
-    test
-        "parseContents rawText"
-        nodes
-        [ ElementNode
-              { tag = "script"
-                attributes = Map []
-                children = [ TextNode "const text = 'This is just a text <p></p>'" ] } ]
+    test "parseContents rawText" nodes [
+        ElementNode {
+            tag = "script"
+            attributes = Map []
+            children = [ TextNode "const text = 'This is just a text <p></p>'" ]
+        }
+    ]
 
 
 let parseHtml (full_html: string) : Html =
