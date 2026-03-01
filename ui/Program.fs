@@ -13,7 +13,6 @@ type MainWindow(argv: string array) as self =
 
     do
         base.Title <- "My Browser"
-        self.AttachDevTools(Input.KeyGesture Input.Key.F12)
 
         Program.mkProgram (fun () -> Event.init argv) Event.update View.view
         |> Program.withHost self
